@@ -115,3 +115,39 @@ create or replace view public.signgu_list with (security_invoker = on) as
 select distinct left(region_code, 2) as area_code, region_code as signgu_code
 from public.tourism_demand
 order by signgu_code;
+
+-- Make Scenario 4(AI) 입력: 검증된 집계를 한 행으로. data_json은 JSON 문자열 리터럴(이스케이프 완료)이라
+-- Make가 Gemini 요청 Body에 그대로 끼워 넣을 수 있다.
+create or replace view public.ai_region_input with (security_invoker = on) as
+with regions as (
+    select l.region_code, l.region_name, l.reference_date,
+           round(l.stay_strength, 2)        as stay_strength,
+           round(l.consumption_strength, 2) as consumption_strength,
+           l.signgu_count,
+           prev.reference_date              as prev_reference_date,
+           round(prev.stay_strength, 2)     as prev_stay_strength,
+           coalesce((
+               select jsonb_object_agg(c.search_category, c.n)
+               from (select search_category, count(*) as n
+                     from public.local_places p
+                     where p.region_code = l.region_code
+                     group by search_category) c
+           ), '{}'::jsonb) as place_counts
+    from public.region_latest l
+    left join lateral (
+        select m.reference_date, m.stay_strength
+        from public.region_tourism_monthly m
+        where m.region_code = l.region_code and m.reference_date < l.reference_date
+        order by m.reference_date desc
+        limit 1
+    ) prev on true
+), trend as (
+    select keyword, reference_date, ratio
+    from public.naver_trend
+    where reference_date >= (select max(reference_date) from public.naver_trend) - interval '3 months'
+)
+select (now() at time zone 'Asia/Seoul')::date as analysis_date,
+       to_json(jsonb_pretty(jsonb_build_object(
+           'regions', (select jsonb_agg(to_jsonb(r) order by r.region_code) from regions r),
+           'naver_trend_recent', (select jsonb_agg(to_jsonb(t) order by t.keyword, t.reference_date) from trend t)
+       )))::text as data_json;
