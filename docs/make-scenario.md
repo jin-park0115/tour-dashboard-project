@@ -1,20 +1,14 @@
-# Make 시나리오 (매일 1회)
+# Make 시나리오
 
-Schedule: 매일 06:00 (Asia/Seoul)
+관광 데이터가 **월 단위**라 매일 돌릴 필요가 없다. 크레딧 절약을 위해 주기를 나눈다.
 
-| # | 모듈 | 내용 |
-|---|------|------|
-| 1 | HTTP | NAVER DataLab 검색어 트렌드 `POST https://openapi.naver.com/v1/datalab/search` (헤더 `X-Naver-Client-Id`, `X-Naver-Client-Secret`), 전일 기준 |
-| 2 | HTTP | 한국관광공사 지역별 관광 수요 강도 API (data.go.kr `serviceKey`). **월 단위(`baseYm`)** 데이터라 최신 월을 조회, 매일 돌아도 upsert라 무해. `21`은 종합 지표(관광체류강도)이고 2101~2105는 세부 지표 |
-| 3 | HTTP | NAVER 지역 검색 `GET https://openapi.naver.com/v1/search/local.json?query={지역} 관광지&display=5` |
-| 4 | Iterator + Tools | 가벼운 전처리: 공백 trim, 날짜 `YYYY-MM-DD`, `baseYm` 202509 → `2025-09-01`, `tarSjrnDsIxVal` 문자열 → 숫자, HTML 태그 제거(`<b>`), 지역 검색 `mapx/mapy` ÷ 1e7 → `lng/lat` |
-| 5 | Filter | 검증: 키 컬럼 null 제외, 숫자 < 0 제외 (DB `check` 제약이 최종 방어선) |
-| 6 | HTTP | Supabase upsert (아래) — `search_trend`, `tour_demand`, `places` |
-| 7 | HTTP | Supabase `GET /rest/v1/region_monthly?month=eq.{최신월}` — 검증된 집계만 AI에 전달 |
-| 8 | HTTP | AI API 호출 (아래 프롬프트) |
-| 9 | HTTP | 결과를 `ai_summaries` upsert (`month`, `region_code`) |
+| 시나리오 | 주기 | 하는 일 | 월 크레딧(대략) |
+|---|---|---|---|
+| A. 관광 체류 강도 + AI 요약 | 매주 | 새 달 데이터가 나왔으면 시군구 전부 수집 → AI 요약 | 새 달 없을 때 3/주, 있을 때 ~260 |
+| B. 검색 트렌드 | 매월 1회 | 17개 시도 NAVER DataLab | ~40 |
+| C. 지역 장소 (NAVER Local) | 보류 | 대시보드에서 아직 안 씀 | - |
 
-## Supabase upsert (HTTP 모듈)
+공통 Supabase upsert (HTTP > Make a request):
 
 ```
 POST {SUPABASE_URL}/rest/v1/{table}
@@ -22,30 +16,77 @@ apikey: {SERVICE_ROLE_KEY}
 Authorization: Bearer {SERVICE_ROLE_KEY}
 Content-Type: application/json
 Prefer: resolution=merge-duplicates,return=minimal
-
-[ {...}, {...} ]   ← Array aggregator로 배열 한 번에 전송
+Body (Raw, JSON): [{{aggregator.text}}]
 ```
 
-PK가 충돌 키 역할을 하므로 같은 날 재실행해도 중복되지 않는다.
+PK가 충돌 키라서 다시 돌려도 중복되지 않는다.
 
-## 관광공사 필드 → `tour_demand` 컬럼
+---
 
-| API | 컬럼 |
-|-----|------|
-| `baseYm` | `month` (YYYY-MM-01) |
-| `areaCd` | `region_code` |
-| `signguCd` / `signguNm` | `signgu_code` / `signgu_name` |
-| `tarSjrnDsIxCd` / `tarSjrnDsIxNm` | `indicator_code` / `indicator_name` |
-| `tarSjrnDsIxVal` | `value` |
+## A. 관광 체류 강도 (매주)
 
-## AI 요약 프롬프트
+API는 호출 1번에 시군구 1곳 x 지표 1개 x 1개월 = 1행. 종합 지표 `21`만 받는다.
+
+| # | 모듈 | 설정 |
+|---|------|------|
+| 1 | HTTP GET | `{SUPABASE_URL}/rest/v1/region_monthly?select=month&order=month.desc&limit=1` (헤더 apikey/Authorization) |
+| 2 | Tools > Set variable | `nextYm` = `{{formatDate(addMonths(parseDate(1.data[1].month; "YYYY-MM-DD"); 1); "YYYYMM")}}` |
+| 3 | HTTP GET (탐색) | 관광공사 API, `baseYm={{nextYm}}`, `areaCd=11`, `signguCd=11110`, `tarSjrnDsIxCd=21` |
+| — | Filter "새 달 있음" | `3.data.response.body.totalCount` Numeric greater than `0` → 없으면 여기서 종료 (3크레딧) |
+| 4 | HTTP GET | `{SUPABASE_URL}/rest/v1/signgu_list?select=region_code,signgu_code` |
+| 5 | Iterator | `{{4.data}}` |
+| 6 | HTTP GET | 관광공사 API, `baseYm={{nextYm}}`, `areaCd={{5.region_code}}`, `signguCd={{5.signgu_code}}`, `tarSjrnDsIxCd=21` |
+| — | Filter "검증" | `6.data.response.body.totalCount` > 0 |
+| 7 | Text aggregator | Source: 5, Row separator `,`, Text: 아래 |
+| 8 | HTTP POST | upsert `tour_demand` |
+| 9~ | AI 요약 | 아래 |
+
+관광공사 API 공통 파라미터: `serviceKey`(Decoding 키), `pageNo=1`, `numOfRows=10`, `MobileOS=ETC`, `MobileApp=tour-dashboard`, `_type=json`
+URL: `https://apis.data.go.kr/B551011/AreaTarDemDsService/areaTarSjrnDsList`
+
+7번 Text:
+```
+{"month":"{{substring(nextYm; 0; 4)}}-{{substring(nextYm; 4; 6)}}-01","region_code":"{{6.data.response.body.items.item[1].areaCd}}","signgu_code":"{{6.data.response.body.items.item[1].signguCd}}","signgu_name":"{{6.data.response.body.items.item[1].signguNm}}","indicator_code":"21","indicator_name":"{{6.data.response.body.items.item[1].tarSjrnDsIxNm}}","value":"{{6.data.response.body.items.item[1].tarSjrnDsIxVal}}"}
+```
+
+### AI 요약 (A에 이어서)
+
+| # | 모듈 | 설정 |
+|---|------|------|
+| 9 | HTTP GET | `{SUPABASE_URL}/rest/v1/region_monthly?select=region_code,name,demand_index,search_ratio&indicator_code=eq.21&month=eq.{{substring(nextYm; 0; 4)}}-{{substring(nextYm; 4; 6)}}-01` |
+| 10 | Anthropic Claude > Create a Prompt | 모델: 최신 Sonnet, 프롬프트 아래 |
+| 11 | HTTP POST | upsert `ai_summaries`, Body: `{{10.텍스트 응답}}` (프롬프트가 배열 그대로 내도록 함) |
 
 ```
-다음은 {month} 지역별 관광 수요 강도 지표(indicator_name, demand_index)와 검색 트렌드(search_ratio) 월 집계다.
+다음은 {{nextYm}} 지역별 관광 체류 강도(demand_index, 시군구 평균)와 검색 트렌드(search_ratio, 지역별 0~100 상대값) 월 집계다.
 주어진 수치만 근거로 각 지역을 한두 문장으로 요약하라. 수치에 없는 내용은 추측하지 말 것.
-JSON 배열로만 응답: [{"region_code": "...", "summary": "..."}]
+설명 없이 JSON 배열만 출력:
+[{"month": "{{substring(nextYm; 0; 4)}}-{{substring(nextYm; 4; 6)}}-01", "region_code": "...", "summary": "...", "model": "<사용 모델 ID>"}]
 
-{region_monthly JSON}
+{{9.data}}
 ```
 
-`model` 컬럼에 사용한 모델 ID를 함께 저장한다.
+---
+
+## B. 검색 트렌드 (매월 1회)
+
+DataLab `ratio`는 **요청 안에서 최댓값=100으로 정규화**된다. 그래서 지역마다 따로 호출하고, 매번 2024-10부터 지난달까지 전체 기간을 다시 받아 덮어쓴다. 그래야 지역별 추이가 일관된다. 지역끼리 값 비교는 의미 없음.
+
+| # | 모듈 | 설정 |
+|---|------|------|
+| 1 | HTTP GET | `{SUPABASE_URL}/rest/v1/regions?select=code,name` |
+| 2 | Iterator | `{{1.data}}` |
+| 3 | HTTP POST | `https://openapi.naver.com/v1/datalab/search`, 헤더 `X-Naver-Client-Id`, `X-Naver-Client-Secret`, Body 아래 |
+| 4 | Iterator | `{{3.data.results[1].data}}` |
+| 5 | Text aggregator | Source: 2, Row separator `,`, Text 아래 |
+| 6 | HTTP POST | upsert `search_trend` |
+
+3번 Body (Raw, JSON):
+```
+{"startDate":"2024-10-01","endDate":"{{formatDate(addDays(setDate(now; 1); -1); "YYYY-MM-DD")}}","timeUnit":"month","keywordGroups":[{"groupName":"{{2.code}}","keywords":["{{2.name}} 여행","{{2.name}} 관광"]}]}
+```
+
+5번 Text:
+```
+{"date":"{{4.period}}","region_code":"{{2.code}}","keyword":"여행","ratio":{{4.ratio}}}
+```

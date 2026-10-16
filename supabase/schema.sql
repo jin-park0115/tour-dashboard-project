@@ -79,6 +79,10 @@ join regions r on r.code = m.region_code
 left join ai_summaries s on s.region_code = m.region_code and s.month = m.month
 order by m.region_code, m.indicator_code, m.month desc;
 
+-- Make가 매월 반복 호출할 시군구 목록 (실제로 데이터가 있었던 코드만)
+create or replace view signgu_list with (security_invoker = on) as
+select distinct region_code, signgu_code from tour_demand order by signgu_code;
+
 -- RLS: anon은 읽기만 ----------------------------------------------------
 
 do $$
