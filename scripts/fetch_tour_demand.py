@@ -15,6 +15,7 @@ import json
 import os
 import sys
 import urllib.parse
+import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -75,8 +76,13 @@ def fetch(ym: str, sg: str, ind: str) -> list[dict]:
         "MobileOS": "ETC", "MobileApp": "tour-dashboard", "_type": "json",
         "baseYm": ym, "areaCd": sg[:2], "signguCd": sg, "tarSjrnDsIxCd": ind,
     })
-    with urllib.request.urlopen(f"{API}?{q}", timeout=30) as r:
-        return parse(r.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(f"{API}?{q}", timeout=30) as r:
+            return parse(r.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code == 429:  # 게이트웨이가 한도 초과를 HTTP 429로 줄 때
+            raise QuotaExceeded
+        raise
 
 
 def existing() -> set[tuple[str, str, str]]:
