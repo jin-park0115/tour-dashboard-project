@@ -1,24 +1,29 @@
 import "server-only";
 import { createClient } from "@supabase/supabase-js";
 
-// Dashboard는 조회만 한다: anon 키 + RLS select 정책.
+// Dashboard는 조회만 한다: Publishable Key + RLS select 정책.
 export const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_ANON_KEY!,
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY!,
   { auth: { persistSession: false } },
 );
 
-export type RegionLatest = {
-  month: string;
+export type RegionMonthly = {
+  reference_date: string;
   region_code: string;
-  name: string;
-  indicator_code: string;
-  indicator_name: string | null;
-  demand_index: number;
-  search_ratio: number | null;
-  lat: number | null;
-  lng: number | null;
-  summary: string | null;
+  stay_strength: number | null;
+  consumption_strength: number | null;
 };
 
-export type RegionMonthly = Pick<RegionLatest, "month" | "region_code" | "indicator_code" | "demand_index" | "search_ratio">;
+export type RegionLatest = RegionMonthly & {
+  region_name: string;
+  signgu_count: number;
+  center_lat: number | null;
+  center_lng: number | null;
+  summary: string | null;
+  limitations: string | null;
+};
+
+export type NaverTrend = { reference_date: string; keyword: string; ratio: number };
+
+export type LocalPlace = { place_key: string; name: string; search_category: string; latitude: number; longitude: number };

@@ -1,6 +1,6 @@
--- 시도 17개 + 전남광주통합특별시(12) (법정동 코드 앞 2자리, 좌표는 대략적인 중심점)
--- 관광공사 API areaCd와 동일 (강원 51, 전북 52 확인됨)
-insert into regions (code, name, lat, lng) values
+-- 시도 17개 + 전남광주통합특별시(12). 관광공사 areaCd와 동일 (강원 51, 전북 52 확인됨)
+-- 좌표는 대략적인 중심점 (지도 원 위치)
+insert into public.regions (region_code, region_name, center_lat, center_lng) values
   ('11', '서울', 37.5665, 126.9780),
   ('26', '부산', 35.1796, 129.0756),
   ('27', '대구', 35.8714, 128.6014),
@@ -15,8 +15,9 @@ insert into regions (code, name, lat, lng) values
   ('44', '충남', 36.5184, 126.8000),
   ('52', '전북', 35.7175, 127.1530),
   ('46', '전남', 34.8679, 126.9910),
-  ('12', '전남광주', 35.0000, 126.9000),  -- 2026 통합. 관광 데이터가 새 코드로 바뀌면 사용
   ('47', '경북', 36.4919, 128.8889),
   ('48', '경남', 35.4606, 128.2132),
-  ('50', '제주', 33.4890, 126.4983)
-on conflict (code) do update set name = excluded.name, lat = excluded.lat, lng = excluded.lng;
+  ('50', '제주', 33.4890, 126.4983),
+  ('12', '전남광주', 35.0000, 126.9000)  -- 2026 광주+전남 통합. 관광 데이터가 새 코드로 바뀌면 사용
+on conflict (region_code) do update
+  set region_name = excluded.region_name, center_lat = excluded.center_lat, center_lng = excluded.center_lng;

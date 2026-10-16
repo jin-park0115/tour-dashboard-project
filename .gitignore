@@ -41,5 +41,6 @@ yarn-error.log*
 next-env.d.ts
 !.env.example
 .venv
-scripts/.tour_demand_empty.txt
+seed/raw/.empty_responses.txt
+seed/processed/
 __pycache__/

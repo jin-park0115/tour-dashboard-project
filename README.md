@@ -1,31 +1,33 @@
-# 지역별 관광 수요 대시보드
+# 지역별 관광 수요 대시보드 (Chapter 14-2)
 
 ```
 NAVER Search Trend ┐
-한국관광공사 수요 강도 ├─ Make (매일 1회: 전처리/검증/Upsert → AI 요약) ─→ Supabase ─→ Next.js (조회만) ─→ Vercel
-NAVER Local Search ┘
+한국관광공사 체류 강도 ├─ Make (Source별 Scenario, 매일 1회) ─→ Supabase ─→ AI(Make) ─→ Supabase
+NAVER Local Search ┘                                              └─→ Next.js (조회만) ─→ Vercel
 ```
 
 Dashboard는 외부 API를 직접 호출하지 않는다. Supabase 조회만 한다.
 
 | 경로 | 역할 |
 |------|------|
-| `supabase/seed_regions.sql` | 시도 17개 코드/좌표 |
-| `supabase/schema.sql` | 테이블, 집계 View(`region_monthly`, `region_latest`), RLS(anon 읽기 전용) |
-| `scripts/initial_load.py` | 초기 대량 CSV 정제 + upsert (pandas) |
-| `docs/make-scenario.md` | Make 일일 시나리오 + AI 프롬프트 |
-| `src/app/page.tsx` | 대시보드 (서버에서 Supabase 조회, 1시간 캐시) |
-| `src/components/` | NAVER 지도, Recharts 차트 |
+| `supabase/schema.sql` | STEP 2 테이블 6개, STEP 3 RLS, 분석용 View |
+| `supabase/seed_regions.sql` | 시도 코드/좌표 |
+| `seed/prepare_seed.py` | STEP 6 Seed 전처리 (raw → processed CSV) |
+| `seed/collect_tour_api.py` | (선택) Seed 원본 수집: 관광공사 API → raw CSV |
+| `docs/make-scenario.md` | STEP 10~ Make Scenario 4개 |
+| `src/` | Next.js Dashboard (NAVER Maps + Recharts) |
 
 ## 셋업
 
-1. Supabase 프로젝트 생성 → SQL Editor에서 `supabase/schema.sql` 실행
-2. `.env.example` → `.env.local` 복사 후 값 입력
-3. NCP 콘솔 Maps Application에 `http://localhost:3000`, Vercel 도메인 등록
-4. 초기 적재:
+1. Supabase SQL Editor: `schema.sql` → `seed_regions.sql`
+2. Seed:
    ```
-   python -m venv .venv && .venv/Scripts/pip install -r scripts/requirements.txt
-   .venv/Scripts/python scripts/initial_load.py regions data/regions.csv
+   python -m venv .venv
+   .venv\Scripts\python -m pip install pandas
+   cd seed
+   ..\.venv\Scripts\python prepare_seed.py
    ```
-5. `npm run dev`
-6. GitHub push → Vercel import → 환경변수 `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `NEXT_PUBLIC_NAVER_MAP_KEY_ID` 등록
+   Table Editor → `tourism_demand` → Import data from CSV → `seed/processed/tourism_demand_seed.csv`
+3. `.env.example` → `.env.local`
+4. `npm run dev`
+5. Vercel: 환경변수 `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, `NEXT_PUBLIC_NAVER_MAP_KEY_ID`

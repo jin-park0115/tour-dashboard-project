@@ -1,15 +1,15 @@
-"""관광공사 관광 체류 강도 과거 데이터 대량 수집 → Supabase.
+"""(선택) Seed 원본 수집: 관광공사 관광 체류 강도 API → raw/tour_api_responses.csv
 
+STEP 5의 "C. 수업 전 한 번 수집해 저장한 API 응답"을 만드는 스크립트. 운영 수집은 Make가 한다.
 API는 호출 1번에 (시군구 1곳 x 지표 1개 x 1개월) 1행만 준다. 그래서 전부 반복 호출한다.
-하루 호출 한도에 걸리면 멈춘다. 다음 날 같은 명령을 다시 실행하면
-Supabase에 이미 있는 것과 빈 응답(.tour_demand_empty.txt)을 건너뛰고 이어서 받는다.
+하루 호출 한도에 걸리면 멈춘다. 다음 날 같은 명령을 다시 실행하면 CSV에 이미 있는 것과
+빈 응답(raw/.empty_responses.txt)을 건너뛰고 이어서 받는다.
 
-사용법:
-  python scripts/fetch_tour_demand.py <법정동코드.txt> 202410 202509 [지표코드 ...]   (지표 기본값: 21)
-  python scripts/fetch_tour_demand.py --check
+사용법 (seed 폴더에서):
+  python collect_tour_api.py 202410 202509 [지표코드 ...]   (지표 기본값: 21 = 종합 관광체류강도)
+  python collect_tour_api.py --check
 
-법정동코드.txt: code.go.kr > 법정동코드 전체자료 다운로드 (탭 구분, cp949)
-환경변수(.env.local): DATA_GO_KR_KEY(Decoding 키), SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+환경변수(../.env.local): DATA_GO_KR_KEY (data.go.kr Decoding 키)
 """
 import json
 import os
@@ -21,14 +21,17 @@ from pathlib import Path
 
 import pandas as pd
 
-from initial_load import clean, upsert
 
-ROOT = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent
+RAW_DIR = BASE_DIR / "raw"
+OUT = RAW_DIR / "tour_api_responses.csv"
+CODES = RAW_DIR / "법정동코드 전체자료.txt"  # code.go.kr > 법정동코드 전체자료 (탭 구분, cp949)
+FIELDS = ["baseYm", "areaCd", "signguCd", "signguNm", "tarSjrnDsIxCd", "tarSjrnDsIxNm", "tarSjrnDsIxVal"]
 API = "https://apis.data.go.kr/B551011/AreaTarDemDsService/areaTarSjrnDsList"
 # 2026년 광주(29)+전남(46) → 전남광주통합특별시(12). 법정동상 폐지지만 과거 관광 데이터는 옛 코드를 씀
 LEGACY_AREAS = ("29", "46")
 # ponytail: 아직 발표 안 된 월도 빈 응답으로 기록됨. 다시 받으려면 이 파일을 지울 것
-EMPTY = Path(__file__).with_name(".tour_demand_empty.txt")
+EMPTY = RAW_DIR / ".empty_responses.txt"
 
 
 class QuotaExceeded(Exception):
@@ -36,7 +39,7 @@ class QuotaExceeded(Exception):
 
 
 def load_env() -> None:
-    env = ROOT / ".env.local"
+    env = BASE_DIR.parent / ".env.local"
     if env.exists():
         for line in env.read_text(encoding="utf-8").splitlines():
             k, sep, v = line.partition("=")
@@ -44,7 +47,7 @@ def load_env() -> None:
                 os.environ.setdefault(k.strip(), v.strip())
 
 
-def signgu_codes(path: str) -> list[str]:
+def signgu_codes(path: Path) -> list[str]:
     """법정동코드 전체자료에서 시군구 5자리 코드 (현존 + LEGACY_AREAS, 시와 구 둘 다 포함, 없는 건 빈 응답으로 걸러짐)."""
     df = pd.read_csv(path, sep="\t", encoding="cp949", dtype=str).iloc[:, :3]
     df.columns = ["code", "name", "status"]
@@ -85,33 +88,28 @@ def fetch(ym: str, sg: str, ind: str) -> list[dict]:
         raise
 
 
-def existing() -> set[tuple[str, str, str]]:
-    key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-    url = f"{os.environ['SUPABASE_URL']}/rest/v1/tour_demand?select=month,signgu_code,indicator_code&limit=1000"
-    out, off = set(), 0
-    while True:
-        req = urllib.request.Request(f"{url}&offset={off}", headers={"apikey": key, "Authorization": f"Bearer {key}"})
-        with urllib.request.urlopen(req) as r:
-            rows = json.load(r)
-        out |= {(x["month"][:7].replace("-", ""), x["signgu_code"], x["indicator_code"]) for x in rows}
-        if len(rows) < 1000:
-            return out
-        off += 1000
+def existing() -> set[tuple[str, ...]]:
+    if not OUT.exists():
+        return set()
+    df = pd.read_csv(OUT, dtype=str, encoding="utf-8-sig")
+    return set(zip(df["baseYm"], df["signguCd"], df["tarSjrnDsIxCd"]))
 
 
-def flush(rows: list[dict]) -> None:
+def save(rows: list[dict]) -> None:
     if rows:
-        df = clean(pd.DataFrame(rows), "tour_demand")
-        upsert("tour_demand", json.loads(df.to_json(orient="records", force_ascii=False)))
+        new = not OUT.exists()  # BOM(utf-8-sig)은 파일 맨 앞에만. 이어쓰기에 붙으면 값이 깨짐
+        pd.DataFrame(rows).reindex(columns=FIELDS).to_csv(
+            OUT, mode="a", header=new, index=False, encoding="utf-8-sig" if new else "utf-8"
+        )
         rows.clear()
 
 
-def main(path: str, start: str, end: str, inds: list[str]) -> None:
+def main(start: str, end: str, inds: list[str]) -> None:
     months = [p.strftime("%Y%m") for p in pd.period_range(f"{start[:4]}-{start[4:]}", f"{end[:4]}-{end[4:]}", freq="M")]
     done = existing()
     if EMPTY.exists():
         done |= {tuple(line.split(",")) for line in EMPTY.read_text().splitlines()}
-    todo = [(ym, sg, ind) for ym in months for sg in signgu_codes(path) for ind in inds if (ym, sg, ind) not in done]
+    todo = [(ym, sg, ind) for ym in months for sg in signgu_codes(CODES) for ind in inds if (ym, sg, ind) not in done]
     print(f"호출 예정 {len(todo)}건")
 
     rows: list[dict] = []
@@ -124,13 +122,13 @@ def main(path: str, start: str, end: str, inds: list[str]) -> None:
                 else:
                     empty.write(f"{ym},{sg},{ind}\n")
                 if len(rows) >= 100:
-                    flush(rows)
+                    save(rows)
                 if i % 50 == 0:
                     print(f"{i}/{len(todo)}")
     except QuotaExceeded:
         print("하루 호출 한도 도달. 내일 같은 명령으로 다시 실행하면 이어서 받습니다.")
     finally:
-        flush(rows)
+        save(rows)
 
 
 def _check() -> None:
@@ -157,4 +155,4 @@ if __name__ == "__main__":
         print("ok")
     else:
         load_env()
-        main(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4:] or ["21"])
+        main(sys.argv[1], sys.argv[2], sys.argv[3:] or ["21"])

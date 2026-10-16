@@ -1,18 +1,26 @@
 "use client";
 
 import { Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import type { RegionMonthly } from "@/lib/supabase";
 
-export default function TrendChart({ data }: { data: RegionMonthly[] }) {
+const COLORS = ["#2563eb", "#f97316", "#16a34a", "#9333ea", "#dc2626", "#0891b2"];
+
+export default function TrendChart({
+  data,
+  lines,
+}: {
+  data: Record<string, string | number | null>[];
+  lines: { key: string; name: string }[];
+}) {
   return (
-    <ResponsiveContainer width="100%" height={320}>
+    <ResponsiveContainer width="100%" height={300}>
       <LineChart data={data}>
-        <XAxis dataKey="month" tickFormatter={(m: string) => m.slice(0, 7)} />
+        <XAxis dataKey="reference_date" tickFormatter={(d: string) => d.slice(0, 7)} />
         <YAxis />
         <Tooltip />
         <Legend />
-        <Line dataKey="demand_index" name="체류 강도 지표" stroke="#2563eb" dot={false} />
-        <Line dataKey="search_ratio" name="검색 트렌드" stroke="#f97316" dot={false} />
+        {lines.map((l, i) => (
+          <Line key={l.key} dataKey={l.key} name={l.name} stroke={COLORS[i % COLORS.length]} dot connectNulls />
+        ))}
       </LineChart>
     </ResponsiveContainer>
   );
