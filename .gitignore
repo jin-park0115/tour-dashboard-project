@@ -44,3 +44,6 @@ next-env.d.ts
 seed/raw/.empty_responses.txt
 seed/processed/
 __pycache__/
+
+# Make blueprint는 API 키를 포함함
+make/
