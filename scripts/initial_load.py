@@ -32,6 +32,8 @@ RENAME = {
 def clean(df: pd.DataFrame, table: str) -> pd.DataFrame:
     keys, nums = TABLES[table]
     df = df.rename(columns=str.strip).rename(columns=RENAME)
+    if table == "tour_demand":  # API 응답의 areaNm 등 테이블에 없는 필드 제거
+        df = df[[c for c in RENAME.values() if c in df]]
     if "date" in df:
         df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y-%m-%d")
     if "month" in df:  # 202509 / 2025-09 / 2025-09-01 → 2025-09-01
@@ -72,6 +74,7 @@ def _check() -> None:
         {
             "baseYm": [202509, 202509, "bad", 202510],
             "areaCd": [11, 11, 11, 26],
+            "areaNm": ["서울특별시"] * 4,
             "signguCd": [11530, 11530, 11530, 26110],
             "signguNm": ["구로구"] * 4,
             "tarSjrnDsIxCd": [2103] * 4,

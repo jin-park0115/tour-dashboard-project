@@ -5,7 +5,7 @@ Schedule: 매일 06:00 (Asia/Seoul)
 | # | 모듈 | 내용 |
 |---|------|------|
 | 1 | HTTP | NAVER DataLab 검색어 트렌드 `POST https://openapi.naver.com/v1/datalab/search` (헤더 `X-Naver-Client-Id`, `X-Naver-Client-Secret`), 전일 기준 |
-| 2 | HTTP | 한국관광공사 지역별 관광 수요 강도 API (data.go.kr `serviceKey`). **월 단위(`baseYm`)** 데이터라 최신 월을 조회, 매일 돌아도 upsert라 무해. 지표 코드 `21`(전체)로 요청하면 2101~2105가 함께 옴 |
+| 2 | HTTP | 한국관광공사 지역별 관광 수요 강도 API (data.go.kr `serviceKey`). **월 단위(`baseYm`)** 데이터라 최신 월을 조회, 매일 돌아도 upsert라 무해. `21`은 종합 지표(관광체류강도)이고 2101~2105는 세부 지표 |
 | 3 | HTTP | NAVER 지역 검색 `GET https://openapi.naver.com/v1/search/local.json?query={지역} 관광지&display=5` |
 | 4 | Iterator + Tools | 가벼운 전처리: 공백 trim, 날짜 `YYYY-MM-DD`, `baseYm` 202509 → `2025-09-01`, `tarSjrnDsIxVal` 문자열 → 숫자, HTML 태그 제거(`<b>`), 지역 검색 `mapx/mapy` ÷ 1e7 → `lng/lat` |
 | 5 | Filter | 검증: 키 컬럼 null 제외, 숫자 < 0 제외 (DB `check` 제약이 최종 방어선) |

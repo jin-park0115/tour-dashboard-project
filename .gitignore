@@ -41,3 +41,4 @@ yarn-error.log*
 next-env.d.ts
 !.env.example
 .venv
+scripts/.tour_demand_empty.txt

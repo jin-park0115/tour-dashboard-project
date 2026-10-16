@@ -5,8 +5,9 @@ import RegionMap from "@/components/RegionMap";
 import TrendChart from "@/components/TrendChart";
 import type { RegionLatest, RegionMonthly } from "@/lib/supabase";
 
-// 관광 체류 강도 지표 (tarSjrnDsIxCd). 21(전체)은 API 요청용이라 화면에는 없음
+// 관광 체류 강도 지표 (tarSjrnDsIxCd)
 const INDICATORS = {
+  "21": "관광 체류 강도 (종합)",
   "2101": "타권역 방문자 비중",
   "2102": "숙박 비중",
   "2103": "1박 방문자수",
@@ -15,7 +16,7 @@ const INDICATORS = {
 } as const;
 
 export default function Dashboard({ latest, monthly }: { latest: RegionLatest[]; monthly: RegionMonthly[] }) {
-  const [indicator, setIndicator] = useState("2103");
+  const [indicator, setIndicator] = useState("21");
   const regions = latest.filter((r) => r.indicator_code === indicator);
   const top = regions[0];
 
