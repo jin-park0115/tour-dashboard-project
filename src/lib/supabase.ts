@@ -9,9 +9,11 @@ export const supabase = createClient(
 );
 
 export type RegionLatest = {
-  date: string;
+  month: string;
   region_code: string;
   name: string;
+  indicator_code: string;
+  indicator_name: string | null;
   demand_index: number;
   search_ratio: number | null;
   lat: number | null;
@@ -19,4 +21,4 @@ export type RegionLatest = {
   summary: string | null;
 };
 
-export type RegionDaily = Pick<RegionLatest, "date" | "region_code" | "demand_index" | "search_ratio">;
+export type RegionMonthly = Pick<RegionLatest, "month" | "region_code" | "indicator_code" | "demand_index" | "search_ratio">;

@@ -18,12 +18,16 @@ create table if not exists search_trend (
   primary key (date, region_code, keyword)
 );
 
--- 한국관광공사 지역별 관광 수요 강도
+-- 한국관광공사 지역별 관광 수요 강도 (월 단위, 시군구 x 지표)
 create table if not exists tour_demand (
-  date         date not null,
-  region_code  text not null references regions(code),
-  demand_index numeric not null check (demand_index >= 0),
-  primary key (date, region_code)
+  month          date not null,                       -- baseYm 202509 → 2025-09-01
+  region_code    text not null references regions(code), -- areaCd (법정동 시도)
+  signgu_code    text not null,                       -- signguCd
+  signgu_name    text,                                -- signguNm
+  indicator_code text not null,                       -- tarSjrnDsIxCd
+  indicator_name text,                                -- tarSjrnDsIxNm
+  value          numeric not null check (value >= 0), -- tarSjrnDsIxVal
+  primary key (month, signgu_code, indicator_code)
 );
 
 -- NAVER 지역 검색 결과 (장소)
@@ -40,32 +44,40 @@ create table if not exists places (
 
 -- AI 요약 (검증된 집계 데이터 기반)
 create table if not exists ai_summaries (
-  date        date not null,
+  month       date not null,
   region_code text not null references regions(code),
   summary     text not null,
   model       text,
   created_at  timestamptz not null default now(),
-  primary key (date, region_code)
+  primary key (month, region_code)
 );
 
 -- 분석용 집계 View ------------------------------------------------------
 
-create or replace view region_daily with (security_invoker = on) as
-select d.date, d.region_code, r.name,
-       d.demand_index,
-       avg(t.ratio) as search_ratio
-from tour_demand d
+-- 수요 강도는 월 단위라 검색 트렌드도 월 평균으로 맞춘다.
+-- ponytail: 시군구 단순 평균. 인구/면적 가중이 필요하면 여기서 바꿀 것
+create or replace view region_monthly with (security_invoker = on) as
+with demand as (
+  select month, region_code, indicator_code, indicator_name, avg(value) as demand_index
+  from tour_demand
+  group by month, region_code, indicator_code, indicator_name
+), trend as (
+  select date_trunc('month', date)::date as month, region_code, avg(ratio) as search_ratio
+  from search_trend
+  group by 1, 2
+)
+select d.*, r.name, t.search_ratio
+from demand d
 join regions r on r.code = d.region_code
-left join search_trend t on t.region_code = d.region_code and t.date = d.date
-group by d.date, d.region_code, r.name, d.demand_index;
+left join trend t using (month, region_code);
 
 create or replace view region_latest with (security_invoker = on) as
-select distinct on (rd.region_code)
-       rd.*, r.lat, r.lng, s.summary
-from region_daily rd
-join regions r on r.code = rd.region_code
-left join ai_summaries s on s.region_code = rd.region_code and s.date = rd.date
-order by rd.region_code, rd.date desc;
+select distinct on (m.region_code, m.indicator_code)
+       m.*, r.lat, r.lng, s.summary
+from region_monthly m
+join regions r on r.code = m.region_code
+left join ai_summaries s on s.region_code = m.region_code and s.month = m.month
+order by m.region_code, m.indicator_code, m.month desc;
 
 -- RLS: anon은 읽기만 ----------------------------------------------------
 

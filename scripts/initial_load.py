@@ -5,7 +5,7 @@
   python scripts/initial_load.py search_trend data/search_trend.csv
   python scripts/initial_load.py tour_demand  data/tour_demand.csv
 
-CSV 컬럼명은 supabase/schema.sql 의 테이블 컬럼명과 같아야 한다.
+CSV 컬럼명은 supabase/schema.sql 의 테이블 컬럼명, 또는 관광공사 API 원본 필드명(baseYm, areaCd ...).
 환경변수: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
 """
 import json
@@ -19,17 +19,27 @@ import pandas as pd
 TABLES = {
     "regions": (["code"], []),
     "search_trend": (["date", "region_code", "keyword"], ["ratio"]),
-    "tour_demand": (["date", "region_code"], ["demand_index"]),
+    "tour_demand": (["month", "signgu_code", "indicator_code"], ["value"]),
+}
+
+# 관광공사 API 원본 필드 → 테이블 컬럼
+RENAME = {
+    "baseYm": "month", "areaCd": "region_code", "signguCd": "signgu_code", "signguNm": "signgu_name",
+    "tarSjrnDsIxCd": "indicator_code", "tarSjrnDsIxNm": "indicator_name", "tarSjrnDsIxVal": "value",
 }
 
 
 def clean(df: pd.DataFrame, table: str) -> pd.DataFrame:
     keys, nums = TABLES[table]
-    df = df.rename(columns=str.strip)
+    df = df.rename(columns=str.strip).rename(columns=RENAME)
     if "date" in df:
         df["date"] = pd.to_datetime(df["date"], errors="coerce").dt.strftime("%Y-%m-%d")
-    if "region_code" in df:
-        df["region_code"] = df["region_code"].astype(str).str.strip()
+    if "month" in df:  # 202509 / 2025-09 / 2025-09-01 → 2025-09-01
+        ym = df["month"].astype(str).str.replace("-", "").str[:6]
+        df["month"] = pd.to_datetime(ym, format="%Y%m", errors="coerce").dt.strftime("%Y-%m-%d")
+    for c in ("region_code", "signgu_code", "indicator_code"):
+        if c in df:
+            df[c] = df[c].astype(str).str.strip()
     for c in nums:
         df[c] = pd.to_numeric(df[c], errors="coerce")
     df = df.dropna(subset=keys + nums)
@@ -60,14 +70,19 @@ def upsert(table: str, rows: list[dict], chunk: int = 1000) -> None:
 def _check() -> None:
     raw = pd.DataFrame(
         {
-            "date": ["2026-01-01", "2026-01-01", "bad", "2026-01-02"],
-            "region_code": [11, 11, 11, 26],
-            "demand_index": [1, 2, 3, -1],
+            "baseYm": [202509, 202509, "bad", 202510],
+            "areaCd": [11, 11, 11, 26],
+            "signguCd": [11530, 11530, 11530, 26110],
+            "signguNm": ["구로구"] * 4,
+            "tarSjrnDsIxCd": [2103] * 4,
+            "tarSjrnDsIxNm": ["1박 방문자수"] * 4,
+            "tarSjrnDsIxVal": ["70", "75.45", "1", "-1"],
         }
     )
     out = clean(raw, "tour_demand")
     assert out.to_dict("records") == [
-        {"date": "2026-01-01", "region_code": "11", "demand_index": 2}
+        {"month": "2025-09-01", "region_code": "11", "signgu_code": "11530", "signgu_name": "구로구",
+         "indicator_code": "2103", "indicator_name": "1박 방문자수", "value": 75.45}
     ], out
 
 

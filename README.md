@@ -10,7 +10,8 @@ Dashboard는 외부 API를 직접 호출하지 않는다. Supabase 조회만 한
 
 | 경로 | 역할 |
 |------|------|
-| `supabase/schema.sql` | 테이블, 집계 View(`region_daily`, `region_latest`), RLS(anon 읽기 전용) |
+| `supabase/seed_regions.sql` | 시도 17개 코드/좌표 |
+| `supabase/schema.sql` | 테이블, 집계 View(`region_monthly`, `region_latest`), RLS(anon 읽기 전용) |
 | `scripts/initial_load.py` | 초기 대량 CSV 정제 + upsert (pandas) |
 | `docs/make-scenario.md` | Make 일일 시나리오 + AI 프롬프트 |
 | `src/app/page.tsx` | 대시보드 (서버에서 Supabase 조회, 1시간 캐시) |
