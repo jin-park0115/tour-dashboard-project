@@ -1,36 +1,30 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# 지역별 관광 수요 대시보드
 
-## Getting Started
-
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```
+NAVER Search Trend ┐
+한국관광공사 수요 강도 ├─ Make (매일 1회: 전처리/검증/Upsert → AI 요약) ─→ Supabase ─→ Next.js (조회만) ─→ Vercel
+NAVER Local Search ┘
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Dashboard는 외부 API를 직접 호출하지 않는다. Supabase 조회만 한다.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+| 경로 | 역할 |
+|------|------|
+| `supabase/schema.sql` | 테이블, 집계 View(`region_daily`, `region_latest`), RLS(anon 읽기 전용) |
+| `scripts/initial_load.py` | 초기 대량 CSV 정제 + upsert (pandas) |
+| `docs/make-scenario.md` | Make 일일 시나리오 + AI 프롬프트 |
+| `src/app/page.tsx` | 대시보드 (서버에서 Supabase 조회, 1시간 캐시) |
+| `src/components/` | NAVER 지도, Recharts 차트 |
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## 셋업
 
-## Learn More
-
-To learn more about Next.js, take a look at the following resources:
-
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
-
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. Supabase 프로젝트 생성 → SQL Editor에서 `supabase/schema.sql` 실행
+2. `.env.example` → `.env.local` 복사 후 값 입력
+3. NCP 콘솔 Maps Application에 `http://localhost:3000`, Vercel 도메인 등록
+4. 초기 적재:
+   ```
+   python -m venv .venv && .venv/Scripts/pip install -r scripts/requirements.txt
+   .venv/Scripts/python scripts/initial_load.py regions data/regions.csv
+   ```
+5. `npm run dev`
+6. GitHub push → Vercel import → 환경변수 `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `NEXT_PUBLIC_NAVER_MAP_KEY_ID` 등록
