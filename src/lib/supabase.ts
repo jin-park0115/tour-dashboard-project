@@ -22,8 +22,18 @@ export type RegionLatest = RegionMonthly & {
   center_lng: number | null;
   summary: string | null;
   limitations: string | null;
+  analysis_date: string | null;
 };
 
 export type NaverTrend = { reference_date: string; keyword: string; ratio: number };
 
-export type LocalPlace = { place_key: string; name: string; search_category: string; latitude: number; longitude: number };
+export type LocalPlace = {
+  place_key: string;
+  region_code: string | null;
+  name: string;
+  search_category: string;
+  category: string | null;
+  road_address: string | null;
+  latitude: number;
+  longitude: number;
+};
