@@ -36,6 +36,7 @@ export default function RegionMap({
   const el = useRef<HTMLDivElement>(null);
   const map = useRef<any>(null);
   const info = useRef<any>(null);
+  const openedAt = useRef(0);
   // 클라이언트 내비게이션으로 재진입 시 스크립트가 이미 로드돼 있을 수 있음
   const [ready, setReady] = useState(() => typeof window !== "undefined" && !!window.naver?.maps);
 
@@ -44,7 +45,10 @@ export default function RegionMap({
     const { maps } = window.naver;
     map.current = new maps.Map(el.current, { center: new maps.LatLng(KOREA.lat, KOREA.lng), zoom: KOREA.zoom });
     info.current = new maps.InfoWindow({ borderColor: "#cbd5e1", borderWidth: 1, anchorSize: new maps.Size(10, 10) });
-    maps.Event.addListener(map.current, "click", () => info.current.close()); // 빈 곳 누르면 닫기
+    // 빈 곳 누르면 닫기. 원/점 클릭이 지도 클릭으로도 전달되는 경우가 있어 방금 연 창은 무시
+    maps.Event.addListener(map.current, "click", () => {
+      if (Date.now() - openedAt.current > 300) info.current.close();
+    });
     return () => {
       map.current.destroy();
       map.current = null;
@@ -80,6 +84,7 @@ export default function RegionMap({
           // 같은 지역을 다시 눌러도 확대되도록 직접 이동 (선택 변경 시 이동 효과와 같은 위치/줌)
           map.current.setCenter(new maps.LatLng(r.center_lat, r.center_lng));
           map.current.setZoom(places.some((p) => p.region_code === r.region_code) ? 9 : 8, true);
+          openedAt.current = Date.now();
           info.current.open(map.current, e.coord);
         });
         return c;
@@ -89,6 +94,9 @@ export default function RegionMap({
         map: map.current,
         position: new maps.LatLng(p.latitude, p.longitude),
         title: `${p.name} (${p.search_category})`,
+        clickable: true,
+        zIndex: 100, // 지역 원보다 위
+        cursor: "pointer",
         icon: {
           content: `<div style="width:14px;height:14px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 2px #0006;background:${CATEGORY_COLORS[p.search_category] ?? "#64748b"}"></div>`,
           anchor: new maps.Point(7, 7),
@@ -107,6 +115,7 @@ export default function RegionMap({
         );
         map.current.setCenter(m.getPosition());
         map.current.setZoom(Math.max(map.current.getZoom(), 15), true); // 장소 확대 (이미 더 크면 유지)
+        openedAt.current = Date.now();
         info.current.open(map.current, m);
       });
       return m;
