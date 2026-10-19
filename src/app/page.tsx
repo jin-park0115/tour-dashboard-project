@@ -15,7 +15,7 @@ async function getData() {
     supabase.from("naver_trend").select("reference_date,keyword,ratio").order("reference_date").limit(5000),
     supabase
       .from("local_places")
-      .select("place_key,region_code,name,search_category,category,road_address,latitude,longitude")
+      .select("place_key,region_code,name,search_category,category,road_address,source_link,latitude,longitude")
       .not("latitude", "is", null)
       .limit(1000),
   ]);

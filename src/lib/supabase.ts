@@ -34,6 +34,7 @@ export type LocalPlace = {
   search_category: string;
   category: string | null;
   road_address: string | null;
+  source_link: string | null;
   latitude: number;
   longitude: number;
 };
