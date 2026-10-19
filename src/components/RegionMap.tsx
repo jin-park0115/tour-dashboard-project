@@ -11,6 +11,7 @@ declare global {
 }
 
 const KOREA = { lat: 36.3, lng: 127.8, zoom: 7 };
+const fmt = (v: number | null | undefined) => (v == null ? "-" : Number(v).toFixed(1));
 
 // 외부(NAVER 검색) 데이터가 InfoWindow HTML에 들어가므로 이스케이프
 const esc = (v: unknown) =>
@@ -19,8 +20,7 @@ const esc = (v: unknown) =>
 const box = (title: string, rows: string[]) =>
   `<div style="padding:10px 12px;min-width:180px;max-width:260px;font-size:12px;line-height:1.5;color:#334155">
     <div style="font-weight:700;font-size:14px;color:#0f172a;margin-bottom:4px">${title}</div>${rows.join("")}</div>`;
-const row = (label: string, value: string) =>
-  `<div><span style="color:#94a3b8">${label}</span> ${value}</div>`;
+const row = (label: string, value: string) => `<div><span style="color:#94a3b8">${label}</span> ${value}</div>`;
 
 export default function RegionMap({
   regions,
@@ -40,12 +40,34 @@ export default function RegionMap({
   // 클라이언트 내비게이션으로 재진입 시 스크립트가 이미 로드돼 있을 수 있음
   const [ready, setReady] = useState(() => typeof window !== "undefined" && !!window.naver?.maps);
 
+  const max = Math.max(1, ...regions.map((r) => r.stay_strength ?? 0));
+  const radius = (r: RegionLatest) => 5000 + 25000 * ((r.stay_strength ?? 0) / max);
+
+  // 지역 원 + 그 지역 장소들이 화면에 꽉 차도록 확대
+  const focusRegion = (r: RegionLatest) => {
+    if (!map.current || r.center_lat == null || r.center_lng == null) return;
+    const { maps } = window.naver;
+    const dLat = radius(r) / 111320;
+    const dLng = radius(r) / (111320 * Math.cos((r.center_lat * Math.PI) / 180));
+    const bounds = new maps.LatLngBounds(
+      new maps.LatLng(r.center_lat - dLat, r.center_lng - dLng),
+      new maps.LatLng(r.center_lat + dLat, r.center_lng + dLng),
+    );
+    for (const p of places) if (p.region_code === r.region_code) bounds.extend(new maps.LatLng(p.latitude, p.longitude));
+    const margin = { top: 40, right: 40, bottom: 40, left: 40 };
+    if (typeof map.current.panToBounds === "function") {
+      map.current.panToBounds(bounds, { duration: 600, easing: "easeOutCubic" }, margin);
+    } else {
+      map.current.fitBounds(bounds, margin);
+    }
+  };
+
   useEffect(() => {
     if (!ready || !el.current) return;
     const { maps } = window.naver;
     map.current = new maps.Map(el.current, { center: new maps.LatLng(KOREA.lat, KOREA.lng), zoom: KOREA.zoom });
     info.current = new maps.InfoWindow({ borderColor: "#cbd5e1", borderWidth: 1, anchorSize: new maps.Size(10, 10) });
-    // 빈 곳 누르면 닫기. 원/점 클릭이 지도 클릭으로도 전달되는 경우가 있어 방금 연 창은 무시
+    // 빈 곳 누르면 닫기. 점 클릭이 지도 클릭으로도 전달되는 경우가 있어 방금 연 창은 무시
     maps.Event.addListener(map.current, "click", () => {
       if (Date.now() - openedAt.current > 300) info.current.close();
     });
@@ -55,37 +77,27 @@ export default function RegionMap({
     };
   }, [ready]);
 
-  // 지역 원(체류 강도 크기, 클릭하면 선택) + 장소 마커(카테고리 색)
+  // 지역 원(체류 강도 크기, 누르면 그 지역으로 확대) + 장소 점(카테고리 색, 누르면 말풍선 + 확대)
   useEffect(() => {
     if (!ready || !map.current) return;
     const { maps } = window.naver;
-    const max = Math.max(1, ...regions.map((r) => r.stay_strength ?? 0));
     const circles = regions
       .filter((r) => r.center_lat != null && r.center_lng != null)
       .map((r) => {
         const c = new maps.Circle({
           map: map.current,
           center: new maps.LatLng(r.center_lat, r.center_lng),
-          radius: 5000 + 25000 * ((r.stay_strength ?? 0) / max),
+          radius: radius(r),
           fillColor: r.region_code === selected?.region_code ? "#1d4ed8" : "#60a5fa",
           fillOpacity: 0.3,
           strokeWeight: 0,
           clickable: true,
+          cursor: "pointer",
         });
-        maps.Event.addListener(c, "click", (e: any) => {
+        maps.Event.addListener(c, "click", () => {
+          info.current.close();
           onSelect(r.region_code);
-          info.current.setContent(
-            box(esc(r.region_name), [
-              row("체류 강도", `${r.stay_strength == null ? "-" : Number(r.stay_strength).toFixed(1)} (${esc(r.reference_date.slice(0, 7))})`),
-              row("소비 강도", r.consumption_strength == null ? "-" : Number(r.consumption_strength).toFixed(1)),
-              row("평균 시군구", `${r.signgu_count}곳`),
-            ]),
-          );
-          // 같은 지역을 다시 눌러도 확대되도록 직접 이동 (선택 변경 시 이동 효과와 같은 위치/줌)
-          map.current.setCenter(new maps.LatLng(r.center_lat, r.center_lng));
-          map.current.setZoom(places.some((p) => p.region_code === r.region_code) ? 9 : 8, true);
-          openedAt.current = Date.now();
-          info.current.open(map.current, e.coord);
+          focusRegion(r); // 이미 선택된 지역을 다시 눌러도 확대되도록 직접 호출
         });
         return c;
       });
@@ -114,37 +126,48 @@ export default function RegionMap({
           ]),
         );
         map.current.setCenter(m.getPosition());
-        map.current.setZoom(Math.max(map.current.getZoom(), 15), true); // 장소 확대 (이미 더 크면 유지)
+        map.current.setZoom(Math.max(map.current.getZoom(), 15), true);
         openedAt.current = Date.now();
         info.current.open(map.current, m);
       });
       return m;
     });
-    // 정보창은 여기서 닫지 않는다: 원 클릭 → 지역 선택 → 다시 그리기가 일어나도 방금 연 창이 유지되도록
     return () => {
       circles.forEach((c) => c.setMap(null));
       markers.forEach((m) => m.setMap(null));
     };
+    // radius/focusRegion은 regions·places에서 파생 → 매 렌더 새로 만들어지므로 deps에서 제외
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready, regions, places, selected, onSelect]);
 
-  // 선택 지역으로 이동 (장소가 있으면 조금 더 확대). morph 애니메이션은 중간에 멈추는 경우가 있어 즉시 이동
+  // 드롭다운으로 지역을 바꿔도 같은 방식으로 확대
   useEffect(() => {
-    if (!ready || !map.current) return;
-    const { maps } = window.naver;
-    const hasCenter = selected?.center_lat != null && selected.center_lng != null;
-    map.current.setCenter(
-      hasCenter ? new maps.LatLng(selected.center_lat, selected.center_lng) : new maps.LatLng(KOREA.lat, KOREA.lng),
-    );
-    map.current.setZoom(hasCenter ? (places.length ? 9 : 8) : KOREA.zoom, false);
-  }, [ready, selected, places.length]);
+    if (ready && selected) focusRegion(selected);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, selected?.region_code]);
 
   return (
-    <>
+    <div className="relative">
       <Script
         src={`https://oapi.map.naver.com/openapi/v3/maps.js?ncpKeyId=${process.env.NEXT_PUBLIC_NAVER_MAP_KEY_ID}`}
         onReady={() => setReady(true)}
       />
       <div ref={el} className="h-[420px] w-full rounded-xl bg-emerald-50" aria-label="관광 지도" />
-    </>
+      {selected && (
+        <div className="pointer-events-none absolute left-3 top-3 z-10 w-44 rounded-lg border border-slate-200 bg-white/95 p-3 text-xs shadow-md">
+          <p className="text-sm font-bold text-slate-800">{selected.region_name}</p>
+          <dl className="mt-1 grid grid-cols-[auto_1fr] gap-x-2 gap-y-0.5 text-slate-600">
+            <dt className="text-slate-400">체류 강도</dt>
+            <dd>
+              {fmt(selected.stay_strength)} <span className="text-slate-400">({selected.reference_date.slice(0, 7)})</span>
+            </dd>
+            <dt className="text-slate-400">소비 강도</dt>
+            <dd>{fmt(selected.consumption_strength)}</dd>
+            <dt className="text-slate-400">장소</dt>
+            <dd>{places.filter((p) => p.region_code === selected.region_code).length}곳</dd>
+          </dl>
+        </div>
+      )}
+    </div>
   );
 }
