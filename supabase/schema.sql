@@ -84,7 +84,21 @@ end $$;
 
 -- 분석용 View ----------------------------------------------------------------
 
--- 시군구 → 시도 월별 평균 (시군구 코드 앞 2자리 = 시도 코드)
+-- 추적 대상 시군구: 시도별 체류 강도 상위 3곳 (2025-09 기준 고정, 약 50곳)
+-- Make Scenario 2가 이 목록만 호출하고(호출 수 절감), 시도 평균도 이 목록으로만 계산해 월별 비교 기준을 고정한다.
+-- ponytail: 기준 월/개수 고정. 바꾸려면 아래 날짜와 rn <= 3 을 수정
+create or replace view public.signgu_list with (security_invoker = on) as
+select area_code, signgu_code
+from (
+    select left(region_code, 2) as area_code, region_code as signgu_code,
+           row_number() over (partition by left(region_code, 2) order by stay_strength desc) as rn
+    from public.tourism_demand
+    where reference_date = '2025-09-01'
+) s
+where rn <= 3
+order by signgu_code;
+
+-- 추적 대상 시군구 → 시도 월별 평균 (시군구 코드 앞 2자리 = 시도 코드)
 -- ponytail: 시군구 단순 평균. 인구/면적 가중이 필요하면 여기서 바꿀 것
 create or replace view public.region_tourism_monthly with (security_invoker = on) as
 select t.reference_date, r.region_code, r.region_name,
@@ -93,6 +107,7 @@ select t.reference_date, r.region_code, r.region_name,
        count(*)                    as signgu_count
 from public.tourism_demand t
 join public.regions r on r.region_code = left(t.region_code, 2)
+where t.region_code in (select signgu_code from public.signgu_list)
 group by t.reference_date, r.region_code, r.region_name;
 
 -- 지역별 최신 월 + 지도 좌표 + 최신 AI 분석
@@ -110,11 +125,6 @@ left join lateral (
 ) a on true
 order by m.region_code, m.reference_date desc;
 
--- Make Scenario 2가 반복 호출할 시군구 목록 (실제로 데이터가 있었던 코드만)
-create or replace view public.signgu_list with (security_invoker = on) as
-select distinct left(region_code, 2) as area_code, region_code as signgu_code
-from public.tourism_demand
-order by signgu_code;
 
 -- Make Scenario 4(AI) 입력: 검증된 집계를 한 행으로. data_json은 JSON 문자열 리터럴(이스케이프 완료)이라
 -- Make가 Gemini 요청 Body에 그대로 끼워 넣을 수 있다.
