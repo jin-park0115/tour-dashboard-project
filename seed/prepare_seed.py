@@ -5,6 +5,9 @@ raw/tour_api_responses.csv   관광공사 API 원본 (collect_tour_api.py 로 �
 
 region_code는 시군구 코드(signguCd)를 그대로 쓴다. 시도 집계는 Supabase View가 한다.
 stay_strength = 종합 관광체류강도(지표 21). consumption_strength는 소비 강도 API 연결 전까지 비움.
+
+추가 적재(이미 Supabase에 있는 달 제외):  python prepare_seed.py 202601
+→ processed/tourism_demand_from_202601.csv  (2026-01 이후만. 겹치는 달이 있으면 CSV Import가 unique 오류로 실패함)
 """
 from pathlib import Path
 
@@ -39,13 +42,17 @@ def to_tourism(raw: pd.DataFrame) -> pd.DataFrame:
     return df[COLUMNS]
 
 
-def prepare_tourism():
+def prepare_tourism(from_ym: str | None = None):
     src = RAW_DIR / "tour_api_responses.csv"
     if not src.exists():
         print("[SKIP] tour_api_responses.csv 없음")
         return
     df = to_tourism(pd.read_csv(src, dtype=str, encoding="utf-8-sig"))
     output = OUT_DIR / "tourism_demand_seed.csv"
+    if from_ym:
+        df = df[pd.to_datetime(df["reference_date"]) >= pd.to_datetime(from_ym, format="%Y%m")]
+        output = OUT_DIR / f"tourism_demand_from_{from_ym}.csv"
+    print("months:", sorted({str(d)[:7] for d in df["reference_date"]}))
     df.to_csv(output, index=False, encoding="utf-8-sig")
     print("[PASS]", output)
     print("rows:", len(df))
@@ -69,4 +76,4 @@ if __name__ == "__main__":
         _check()
         print("ok")
     else:
-        prepare_tourism()
+        prepare_tourism(sys.argv[1] if len(sys.argv) > 1 else None)
