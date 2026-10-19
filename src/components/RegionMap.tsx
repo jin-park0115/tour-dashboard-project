@@ -76,15 +76,15 @@ export default function RegionMap({
     };
   }, [ready, regions, places, selected, onSelect]);
 
-  // 선택 지역으로 이동 (장소가 있으면 조금 더 확대)
+  // 선택 지역으로 이동 (장소가 있으면 조금 더 확대). morph 애니메이션은 중간에 멈추는 경우가 있어 즉시 이동
   useEffect(() => {
     if (!ready || !map.current) return;
     const { maps } = window.naver;
-    if (selected?.center_lat != null && selected.center_lng != null) {
-      map.current.morph(new maps.LatLng(selected.center_lat, selected.center_lng), places.length ? 9 : 8);
-    } else {
-      map.current.morph(new maps.LatLng(KOREA.lat, KOREA.lng), KOREA.zoom);
-    }
+    const hasCenter = selected?.center_lat != null && selected.center_lng != null;
+    map.current.setCenter(
+      hasCenter ? new maps.LatLng(selected.center_lat, selected.center_lng) : new maps.LatLng(KOREA.lat, KOREA.lng),
+    );
+    map.current.setZoom(hasCenter ? (places.length ? 9 : 8) : KOREA.zoom, false);
   }, [ready, selected, places.length]);
 
   return (
