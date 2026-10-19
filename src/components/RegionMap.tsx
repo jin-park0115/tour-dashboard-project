@@ -77,6 +77,9 @@ export default function RegionMap({
               row("평균 시군구", `${r.signgu_count}곳`),
             ]),
           );
+          // 같은 지역을 다시 눌러도 확대되도록 직접 이동 (선택 변경 시 이동 효과와 같은 위치/줌)
+          map.current.setCenter(new maps.LatLng(r.center_lat, r.center_lng));
+          map.current.setZoom(places.some((p) => p.region_code === r.region_code) ? 9 : 8, true);
           info.current.open(map.current, e.coord);
         });
         return c;
@@ -102,6 +105,8 @@ export default function RegionMap({
             link && `<div style="margin-top:4px">${link}</div>`,
           ]),
         );
+        map.current.setCenter(m.getPosition());
+        map.current.setZoom(Math.max(map.current.getZoom(), 15), true); // 장소 확대 (이미 더 크면 유지)
         info.current.open(map.current, m);
       });
       return m;
